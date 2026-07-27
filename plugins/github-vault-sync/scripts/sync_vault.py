@@ -16,9 +16,25 @@ DEFAULT_BRANCH = "main"
 DEFAULT_VAULT = Path(__file__).resolve().parents[3]
 TIMEOUT = 180
 
+# 确保 Git LFS 等 Homebrew 工具在 PATH 中可被找到（macOS GUI 应用 PATH 不包含 Homebrew）
+EXTRA_PATHS = [
+    "/opt/homebrew/bin",   # Apple Silicon Mac
+    "/usr/local/bin",      # Intel Mac
+    "/opt/homebrew/sbin",
+    "/usr/local/sbin",
+]
+
 
 class SyncError(RuntimeError):
     pass
+
+
+def _augment_path(env: dict[str, str]) -> None:
+    """确保 PATH 包含 Homebrew 等常见路径，避免 GUI 应用下找不到 git-lfs 等工具。"""
+    existing = env.get("PATH", "").split(":")
+    added = [p for p in EXTRA_PATHS if p and p not in existing and Path(p).is_dir()]
+    if added:
+        env["PATH"] = ":".join(added + existing)
 
 
 def run(
@@ -29,6 +45,7 @@ def run(
     git_command: bool = False,
 ) -> subprocess.CompletedProcess[str]:
     env = os.environ.copy()
+    _augment_path(env)
     if git_command:
         env["GIT_TERMINAL_PROMPT"] = "0"
     result = subprocess.run(
@@ -87,6 +104,31 @@ def initialize_repo(vault: Path, branch: str) -> bool:
     if result.returncode != 0:
         git(vault, ["init"])
         git(vault, ["branch", "-M", branch])
+    return True
+
+
+def ensure_lfs(vault: Path) -> bool:
+    """确保 Git LFS 已在当前仓库中安装（hook 脚本就位）。
+
+    macOS GUI 应用下 PATH 可能不含 Homebrew，需配合 _augment_path 使用。
+    返回 True 表示本次执行了安装操作。
+    """
+    # 先检查 git-lfs 是否可用
+    result = run(["git", "lfs", "version"], cwd=vault, check=False, git_command=True)
+    if result.returncode != 0:
+        raise SyncError(
+            "未检测到 Git LFS。请先在终端执行：\n"
+            "brew install git-lfs\n"
+            "安装完成后再同步。"
+        )
+    # 检查 pre-push hook 是否存在且包含 lfs
+    hook_path = vault / ".git" / "hooks" / "pre-push"
+    if hook_path.is_file():
+        content = hook_path.read_text(errors="ignore")
+        if "git-lfs" in content or "git lfs" in content:
+            return False
+    # 执行 lfs install
+    git(vault, ["lfs", "install"])
     return True
 
 
@@ -224,6 +266,7 @@ def sync(
     validation = validate_vault(vault) if run_validation else None
     initialized = initialize_repo(vault, branch)
     ensure_branch(vault, branch)
+    lfs_installed = ensure_lfs(vault)
     remote_added = ensure_remote(vault, remote_name, remote_url)
     identity_added = ensure_identity(vault)
 
@@ -255,6 +298,7 @@ def sync(
         "initialized": initialized,
         "remote_added": remote_added,
         "identity_added": identity_added,
+        "lfs_installed": lfs_installed,
         "remote_branch_existed": remote_exists,
         "committed": committed,
         "branch": branch,
