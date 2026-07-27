@@ -1,13 +1,16 @@
 ---
 title: OpenRouter 录音转文字工作流
 created: 2026-07-19
-updated: 2026-07-19
+updated: 2026-07-27
 tags:
   - workflow
   - workflow/general
 ---
 
 # OpenRouter 录音转文字工作流
+
+> 来源：自 Codex 工作流汇总迁入；Zcode 执行时同样遵守本页路由，不擅自改用本地 Whisper 等替代方案。
+> 2026-07-22 用户确认：以后拿到录音转文字都按本工作流走（见 [[../01_长期记忆/用户长期偏好#录音转文字（2026-07-22 确认）|长期偏好]]）。
 
 ## 固定路由
 
