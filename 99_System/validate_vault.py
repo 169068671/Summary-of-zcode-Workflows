@@ -53,8 +53,14 @@ def resolve_wikilink(source: Path, raw: str, markdown_files: list[Path]) -> Path
 
 
 def main() -> int:
+    def is_hidden(rel: Path) -> bool:
+        return any(part.startswith(".") for part in rel.parts)
+
     errors: list[str] = []
-    markdown_files = sorted(ROOT.rglob("*.md"))
+    markdown_files = sorted(
+        path for path in ROOT.rglob("*.md")
+        if not is_hidden(path.relative_to(ROOT))
+    )
     tag_index_text = TAG_INDEX.read_text(encoding="utf-8") if TAG_INDEX.is_file() else ""
     content_index_text = CONTENT_INDEX.read_text(encoding="utf-8") if CONTENT_INDEX.is_file() else ""
     if not tag_index_text:
