@@ -214,8 +214,30 @@ git lfs checkout
 # 恢复 stash
 git stash pop 2>/dev/null || true
 
-echo "✅ 推送完成: $REPO_PATH"
+echo "✅ 推送完成: $REPO_PATH
 ```
+
+### 脚本副作用与本地恢复（实测发现）
+
+> 以下结论来自 2026-07-28 在 `教科研数据仓库`（2 个 LFS PDF）上的实测。
+
+脚本用 `--force` 把转换后的普通文件版本推到 Gitee main，**Gitee 远端 main 的 HEAD 从此是普通文件版本，不再是 LFS 指针版本**。这是设计意图（Gitee 不支持 LFS），但有三个副作用需要知道：
+
+1. **本地 LFS 跟踪会断**：脚本第 2 步全局移除了 `filter.lfs`，第 6 步 `git lfs install` + `git lfs checkout` 虽能重建，但若本地 main 已被脚本或后续操作 reset 到转换后的提交，`git lfs ls-files` 会返回空（因为该提交里已是普通文件，LFS 不再跟踪）。
+2. **本地 main 落后于 gitee/main**：脚本只 force push 到远端，不动本地 main。推送后本地 main 停在原 LFS 版本，gitee/main 指向新的转换版本，本地显示「落后 N 个提交」。
+3. **本地与 Gitee 历史分叉**：本地是 LFS 指针历史，Gitee 是普通文件历史，两者不再 fast-forward 关系。后续再次推送该仓库时，**必须继续用本脚本**（或 `git push gitee main --force`），不能普通 push。
+
+**推送后恢复本地 LFS 状态**（让本地回到正常的 LFS 跟踪，继续用 GitHub origin 工作）：
+
+```bash
+cd /Users/wangzirui/仓库名
+# 本地 main 保持原 LFS 版本，不要 reset 到 gitee/main
+git lfs install
+git lfs checkout          # 重新检出 LFS 真实文件
+git lfs ls-files          # 确认 LFS 跟踪已恢复（应列出文件）
+```
+
+> 本地 main 与 gitee/main 的分叉是**预期状态**：本地走 GitHub LFS，Gitee 走普通文件镜像，互不影响。只要不把本地 main reset 到 gitee/main，LFS 跟踪就不会断。
 
 ### 批量推送（按大小排序，小仓库先推）
 
@@ -288,6 +310,7 @@ Host gitee.com
 | 眼镜店AI视频 | ~200M | 有 | ✅ 成功 |
 | 王华军AI视频 | ~300M | 有 | ✅ 成功 |
 | 拍我AI PAI.VIDEO | ~200M | 有 | ✅ 成功 |
+| 教科研数据仓库 | ~38M | 有（2 PDF） | ✅ 成功（2026-07-28 实测，见副作用小节） |
 | 丁美霞AI视频 | ~2.3G | 有 | ❌ 超时（需拆分） |
 
 ## 常见问题速查
@@ -300,6 +323,7 @@ Host gitee.com
 | `exceeds quota 1024MB` | 仓库超 1G，可继续推（有次数限制）或拆分 |
 | `git lfs checkout` 后仍是 131 字节 | `.gitattributes` 缺 LFS 规则，用脚本临时添加 |
 | `git add -A` 检测不到变更 | 先 `git config --remove-section filter.lfs`，再 `git add --renormalize .` |
+| 推送后 `git lfs ls-files` 为空 | 本地 main 被重置到 gitee/main（转换版），LFS 不再跟踪。reset 回原 LFS 版本后 `git lfs install && git lfs checkout` 恢复，见「脚本副作用与本地恢复」 |
 | Gitee 上有旧内容要覆盖 | `git push gitee <分支>:main --force` |
 | MCP 报 422 `cannot specify type` | 不要同时传 `type` 和 `affiliation`，只用 `affiliation` |
 
