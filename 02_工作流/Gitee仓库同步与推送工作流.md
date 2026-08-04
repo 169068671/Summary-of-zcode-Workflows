@@ -1,13 +1,18 @@
 ---
 title: Gitee仓库同步与推送工作流
 created: 2026-07-28
-updated: 2026-07-28
+updated: 2026-08-04
+type: workflow
+record_type: workflow
 status: 启用
+version: 1.1.0
+source: 借鉴同名Gitee推送工作流的职责边界/推送前审计/LFS优先级方案/停止恢复规则，保留zcode的MCP工具表与实测记录
 tags:
   - workflow/general
   - gitee
   - git
   - backup
+  - workflow/repository-sync
 ---
 
 # Gitee仓库同步与推送工作流
@@ -22,7 +27,25 @@ tags:
 
 > Gitee 企业免费版有 **10 个仓库额度**，单仓库约 1G 软限制。
 
-## 前置条件清单
+## 一、职责边界
+
+- Git 负责代码传输、分支和远程；本地 `mcp__gitee__*` 工具只用于仓库元数据、Issue、PR 或推送后只读验证。
+- 用户要求"检查"时不建仓、不添加 remote、不提交、不推送。
+- 新建远程仓库、添加 remote、首次推送和批量推送属于外部写入，执行前确认精确目标。
+- 不保存 Gitee Token；使用系统凭据、SSH 代理或已批准连接器。
+
+## 二、推送前审计
+
+| 检查 | 处理 |
+|---|---|
+| 当前分支与工作区 | 保留用户改动，确认提交范围 |
+| `gitee` remote | 核对纯净 URL、owner、repo 和目标分支 |
+| 远端是否已有历史 | 先 fetch；历史不相关或分叉则停止 |
+| LFS 文件 | 查询当前 Gitee 能力；不默认支持，也不自动转换 |
+| 大文件与仓库总量 | 按当前平台规则核验，不引用过期配额 |
+| 敏感文件 | 阻止 `.env`、私钥、凭据和不必要个人数据进入提交 |
+
+## 三、前置条件清单
 
 | 步骤 | 命令/操作 | 验证 |
 |------|----------|------|
@@ -34,7 +57,7 @@ tags:
 
 > **SSH 验证成功**会显示：`Hi xxx! You've successfully authenticated...`
 
-## 本地 Gitee MCP 与 git 的职责边界
+## 四、本地 Gitee MCP 与 git 的职责边界
 
 本工作流**统一用本地 `mcp__gitee__*` 工具**（Zcode 通过 stdio 挂载 `~/.local/bin/mcp-gitee`）处理 Gitee **元数据**；**代码传输只能用 git**，因为 MCP 没有 push/clone/remote 类工具。
 
@@ -70,7 +93,7 @@ tags:
 
 > **关键**：上表无任何 `git push` / `git clone` / `git remote` 类工具。代码推送、LFS 转换、remote 管理只能用本地 `git` 命令。
 
-## 用本地 MCP 建仓与检查
+## 五、用本地 MCP 建仓与检查
 
 以下操作在 Zcode 会话中直接调用 `mcp__gitee__*` 工具，无需手动跑命令行。配置细节见 [[Gitee_MCP配置文档]]。
 
@@ -117,7 +140,7 @@ path: README.md
 
 确认远端已有内容，推送成功。
 
-## 批量检查本地仓库状态
+## 六、批量检查本地仓库状态
 
 ```bash
 cd /Users/wangzirui
@@ -131,7 +154,7 @@ for dir in */; do
 done
 ```
 
-## 推送流程
+## 七、推送流程
 
 ### 无 LFS 文件：直接推送
 
@@ -144,7 +167,22 @@ git push gitee main
 
 ### 有 LFS 文件：转换后推送
 
-Gitee 免费版不支持 LFS，需把 LFS 指针文件临时转为真实内容再推送。保存为 `push_to_gitee.sh`：
+Gitee 免费版不支持 LFS，需把 LFS 指针文件临时转为真实内容再推送。
+
+> [!danger] 禁止自动全局改写
+> 以下行为会造成 GitHub 与 Gitee 历史分叉或破坏本地 LFS 配置，**除非用户对精确目标单独授权并已备份**，否则禁止：
+> - 全局删除 `filter.lfs`（`git config --global --remove-section filter.lfs`）。
+> - 把临时分支强推作为默认路径（`git push gitee <分支>:main --force`）。
+> - 把本地 main reset 到镜像历史。
+
+**LFS 处理优先级方案**（按顺序评估，转换脚本是最后手段）：
+
+1. Gitee 当前账户确实支持所需 LFS 时，使用正常 LFS 推送。
+2. 大文件不需要进入国内镜像时，仅同步文本和配置，并在 README 说明原件位置。
+3. 需要普通文件镜像时，使用独立克隆或独立镜像分支，先备份并向用户说明历史分叉；强推仍需单独确认。
+4. 超出配额时停止，不通过删除原始数据或改写主仓历史来"挤进去"。
+
+以下转换脚本属于**第 3 档最后手段**，执行前必须已向用户说明历史分叉后果并取得确认。保存为 `push_to_gitee.sh`：
 
 ```bash
 #!/bin/bash
@@ -190,9 +228,8 @@ git commit -m "temp: add LFS rules for checkout"
 # 检出真实文件内容
 git lfs checkout
 
-# 步骤 2: 移除 LFS filter，防止转回指针
+# 步骤 2: 移除 LFS filter，防止转回指针（仅作用于当前仓库，不污染全局配置）
 git config --local --remove-section filter.lfs 2>/dev/null || true
-git config --global --remove-section filter.lfs 2>/dev/null || true
 
 # 步骤 3: 恢复原始 .gitattributes
 git show "$CURRENT:.gitattributes" > .gitattributes 2>/dev/null || rm -f .gitattributes
@@ -312,6 +349,20 @@ Host gitee.com
 | 拍我AI PAI.VIDEO | ~200M | 有 | ✅ 成功 |
 | 教科研数据仓库 | ~38M | 有（2 PDF） | ✅ 成功（2026-07-28 实测，见副作用小节） |
 | 丁美霞AI视频 | ~2.3G | 有 | ❌ 超时（需拆分） |
+
+## 八、停止与恢复
+
+- 用户说"停止推送"时，停止未开始的仓库；正在传输的进程安全中断后，检查远端是否已更新。
+- 不因超时重复提交；先检查本地提交和远端哈希。
+- 认证、配额、分叉或权限问题分别报告，不混称网络问题。
+
+## 九、完成标准
+
+- [ ] 远端仓库、分支和可见性已确认。
+- [ ] 无明文凭据和未授权敏感文件。
+- [ ] LFS/大文件策略有当前依据。
+- [ ] 本地与远端哈希已核对。
+- [ ] 未强推、改写历史或更改全局 Git 配置，除非用户单独授权并已备份。
 
 ## 常见问题速查
 

@@ -1,9 +1,15 @@
 ---
 title: 学科单元复述材料与家长指南编写工作流-Zcode版
 created: 2026-07-27
-updated: 2026-07-27
+updated: 2026-08-04
+type: workflow
+record_type: workflow
+status: active
+version: 1.1.0
+source: 借鉴同名工作流的一致性流程，保留zcode详细规则与反面案例
 tags:
   - workflow/learning-kb
+  - workflow/documents
 ---
 
 # 学科单元复述材料与家长指南编写工作流（Zcode版）

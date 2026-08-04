@@ -1,12 +1,17 @@
 ---
 title: GitHub仓库推送工作流
 created: 2026-07-28
-updated: 2026-07-28
+updated: 2026-08-04
+type: workflow
+record_type: workflow
 status: 启用
+version: 1.1.0
+source: 借鉴同名通用仓库推送工作流的安全护栏与预检流程，保留zcode实操脚本
 tags:
   - workflow/general
   - git
   - github
+  - workflow/repository-sync
 ---
 
 # GitHub仓库推送工作流
@@ -21,7 +26,24 @@ tags:
 
 > 与 [[Gitee仓库同步与推送工作流]] 对称：Gitee 不支持 LFS 需转换，**GitHub 原生支持 LFS，直接推送即可**。
 
-## 前置条件
+## 一、授权边界
+
+- "检查、诊断、看看状态"只授权只读检查，不自动提交或推送。
+- 用户明确要求"推送"后，才执行提交和远端写入；批量推送前列出精确仓库清单。
+- 不自动强推、不改写历史、不替换已有远程、不重置用户分支。
+- 不把 API Token 写入 remote URL、笔记、脚本或日志；优先使用 `gh auth login` 与系统凭据库，或已配置 SSH。
+
+## 二、逐仓预检
+
+1. `git status --short --branch`：确认当前分支与未提交改动。
+2. `git remote -v`：确认目标远端和仓库身份，不打印含凭据 URL。
+3. `git log -1 --oneline`：记录本地提交。
+4. `git lfs ls-files`：识别 LFS，不把 GitHub LFS 文件擅自转为普通文件。
+5. `git fetch --prune <remote>`：获得远端状态；网络失败时停止并报告。
+6. 判断 ahead/behind/diverged；分叉或冲突时不擅自合并。
+7. 运行项目自带测试、格式检查或知识库验证器。
+
+## 三、前置条件
 
 | 步骤 | 命令/操作 | 验证 |
 |------|----------|------|
@@ -32,7 +54,7 @@ tags:
 
 > gh CLI 是推荐入口：token 存系统 keyring，不落盘、不进 git config。
 
-## 认证方式
+## 四、认证方式
 
 ### 方式 A：gh credential helper（推荐）
 
@@ -101,7 +123,7 @@ git remote -v | grep -o "ghp_[a-zA-Z0-9]*" && echo "⚠️ 仍有token" || echo 
 
 > 清理后，若该 token 曾明文暴露，去 GitHub Settings → Developer settings → Personal access tokens **删除/轮换**它。
 
-## 批量检查本地仓库状态
+## 五、批量检查本地仓库状态
 
 ```bash
 cd /Users/wangzirui
@@ -119,7 +141,7 @@ for dir in */; do
 done
 ```
 
-## 推送流程
+## 六、推送流程
 
 ### 普通仓库：直接推送
 
@@ -175,7 +197,7 @@ done | sort -h | while read -r size name; do
 done
 ```
 
-## 网络不稳定处理
+## 七、网络不稳定处理
 
 GitHub 在国内访问不稳定，推送可能超时。几种应对：
 
@@ -234,6 +256,21 @@ git push origin main
 | 丁美霞AI视频 | ~2.3G | 1098 | 待测 | ⚠️ 大仓库需分批 |
 
 > GitHub LFS 免费额度：1GB 存储 + 1GB/月 带宽。超出需购买 LFS Data Pack。
+
+## 八、批量规则
+
+- 批量检查可以并行；批量推送按仓库逐一执行并单独记录结果。
+- 一个仓库失败不触发其他仓库的破坏性补救。
+- 输出表至少包含：仓库、分支、脏文件数、LFS 数量、远端、提交哈希、推送结果、失败原因。
+- 认证失败、配额不足、远端分叉或测试失败时停在该仓库，不自动重试提交。
+
+## 九、完成标准
+
+- [ ] 精确仓库与分支已确认。
+- [ ] 凭据未出现在 URL 或日志。
+- [ ] 测试/知识库核验结果已记录。
+- [ ] 本地 HEAD 与远端目标哈希一致。
+- [ ] 未执行强推、重置或远程替换，除非用户对精确目标明确授权。
 
 ## 常见问题速查
 
